@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roblox Payout CSV</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #fff; --text: #1b1d21; --muted: #6b7280; --border: #dfe2e7;
+    --accent: #2563eb; --accent-text: #fff; --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
+    --row-hover: #f8fafc; --drop: #dbeafe;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121417; --panel: #1b1e23; --text: #e6e8eb; --muted: #9aa1ab; --border: #2c3138;
+      --accent: #3b82f6; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
+      --row-hover: #22262c; --drop: #1e3a5f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  input, select, button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button.icon { padding: 4px 8px; background: transparent; border-color: transparent; color: var(--muted); }
+  button.icon:hover { color: var(--bad); }
+  .grow { flex: 1; min-width: 220px; }
+  .big { font-size: 18px; width: 180px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr.item:hover { background: var(--row-hover); }
+  tr.item.dragging { opacity: .4; }
+  tr.item.drop-above td { box-shadow: inset 0 2px 0 var(--accent); }
+  tr.item.drop-below td { box-shadow: inset 0 -2px 0 var(--accent); }
+  tr.item.disabled td:not(:first-child):not(:nth-child(2)) { opacity: .45; }
+  .handle { cursor: grab; color: var(--muted); user-select: none; font-size: 16px; text-align: center; width: 28px; }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+  .user .name { font-weight: 600; }
+  .user .sub { color: var(--muted); font-size: 12px; }
+  .valcell { display: flex; gap: 6px; }
+  .valcell select { width: 82px; }
+  .valcell input { width: 110px; }
+  .status { font-size: 12px; white-space: nowrap; }
+  .s-ok { color: var(--ok); } .s-warn { color: var(--warn); } .s-bad { color: var(--bad); }
+  .summary { display: flex; gap: 24px; flex-wrap: wrap; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .stat .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .empty { text-align: center; color: var(--muted); padding: 24px; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  #msg { font-size: 13px; }
+  .tablewrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Roblox Payout CSV Generator</h1>
+
+  <section class="panel">
+    <div class="row">
+      <label>Robux available to pay out
+        <input id="available" class="big" type="number" min="0" step="1" placeholder="0">
+      </label>
+      <label>Percentages are calculated from
+        <select id="pctMode">
+          <option value="total">Total available</option>
+          <option value="remaining">Remaining at their turn</option>
+        </select>
+      </label>
+    </div>
+    <div class="hint">Payees are paid top to bottom. If funds run out, later payees get a reduced amount or nothing.</div>
+  </section>
+
+  <section class="panel">
+    <form id="addForm" class="row">
+      <label class="grow">Add users (user IDs or usernames — separate several with commas or spaces)
+        <input id="addInput" placeholder="e.g. 12345678, Builderman, @1234 (prefix @ to force a username)">
+      </label>
+      <label>Type
+        <select id="addType"><option value="fixed">Robux</option><option value="percent">%</option></select>
+      </label>
+      <label>Amount
+        <input id="addValue" type="number" min="0" step="any" style="width:110px" placeholder="0">
+      </label>
+      <button class="primary" type="submit">Add</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="toolbar">
+      <strong>Payout order</strong>
+      <div class="row">
+        <button id="refreshBtn" type="button">Re-check users</button>
+        <button id="clearBtn" type="button">Remove all</button>
+      </div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th></th><th title="Include in this payout">On</th><th>#</th><th>User</th><th>Amount</th><th class="num">Payout</th><th>Status</th><th></th></tr></thead>
+        <tbody id="list"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="toolbar">
+      <div class="summary">
+        <div class="stat"><div class="k">Available</div><div class="v" id="sAvail">0</div></div>
+        <div class="stat"><div class="k">Paying out</div><div class="v" id="sPaid">0</div></div>
+        <div class="stat"><div class="k">Left over</div><div class="v" id="sLeft">0</div></div>
+        <div class="stat"><div class="k">Payees in CSV</div><div class="v" id="sCount">0</div></div>
+      </div>
+      <button id="exportBtn" class="primary" type="button">Download CSV</button>
+    </div>
+    <div id="msg"></div>
+  </section>
+</main>
+
+<script>
+const state = { available: 0, pctMode: "total", payees: [] };
+let saveTimer = null;
+let lookupError = "";
+const $ = (id) => document.getElementById(id);
+const uid = () => Math.random().toString(36).slice(2, 10);
+const fmt = (n) => Number(n).toLocaleString();
+
+// ---------- persistence ----------
+async function load() {
+  try {
+    const s = await (await fetch("/api/state")).json();
+    if (s && Array.isArray(s.payees)) Object.assign(state, s);
+  } catch {}
+  $("available").value = state.available || "";
+  $("pctMode").value = state.pctMode;
+  render();
+  resolveUsers(state.payees.filter((p) => !p.userId));
+}
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) }).catch(() => {});
+  }, 300);
+}
+
+// ---------- calculation ----------
+function calculate() {
+  const total = Math.max(0, Math.floor(Number(state.available) || 0));
+  let remaining = total;
+  const rows = state.payees.map((p) => {
+    const r = { requested: 0, payout: 0, status: "", cls: "s-ok" };
+    if (!p.enabled) { r.status = "Skipped"; r.cls = ""; return r; }
+    if (p.lookup === "pending") { r.status = "Looking up…"; r.cls = "s-warn"; return r; }
+    if (!p.userId && p.lookup === "error") { r.status = "Lookup failed — Re-check"; r.cls = "s-bad"; r.unresolved = true; return r; }
+    if (!p.userId) { r.status = "User not found"; r.cls = "s-bad"; r.unresolved = true; return r; }
+    const v = Math.max(0, Number(p.value) || 0);
+    r.requested = p.type === "percent"
+      ? Math.floor(((state.pctMode === "total" ? total : remaining) * v) / 100)
+      : Math.floor(v);
+    r.payout = Math.min(r.requested, remaining);
+    remaining -= r.payout;
+    if (r.requested === 0) { r.status = "Nothing to pay"; r.cls = "s-warn"; }
+    else if (r.payout === 0) { r.status = "Out of funds"; r.cls = "s-bad"; }
+    else if (r.payout < r.requested) { r.status = `Reduced (wanted ${fmt(r.requested)})`; r.cls = "s-warn"; }
+    else r.status = "OK";
+    return r;
+  });
+  return { total, remaining, rows };
+}
+
+// ---------- rendering ----------
+function render() {
+  const { total, remaining, rows } = calculate();
+  const list = $("list");
+  list.innerHTML = "";
+  if (!state.payees.length) {
+    list.innerHTML = `<tr><td colspan="8" class="empty">No payees yet — add some above.</td></tr>`;
+  }
+  state.payees.forEach((p, i) => {
+    const r = rows[i];
+    const tr = document.createElement("tr");
+    tr.className = "item" + (p.enabled ? "" : " disabled");
+    tr.dataset.id = p.id;
+    const userHtml = p.userId
+      ? `<div class="name">${esc(p.displayName || p.username || p.userId)}</div><div class="sub">${p.username ? "@" + esc(p.username) + " · " : ""}${p.userId}</div>`
+      : `<div class="name">${esc(p.input)}</div><div class="sub">unresolved</div>`;
+    tr.innerHTML = `
+      <td class="handle" draggable="true" title="Drag to reorder">⠿</td>
+      <td><input type="checkbox" data-f="enabled" ${p.enabled ? "checked" : ""}></td>
+      <td class="num">${i + 1}</td>
+      <td class="user">${userHtml}</td>
+      <td><div class="valcell">
+        <select data-f="type"><option value="fixed" ${p.type === "fixed" ? "selected" : ""}>Robux</option><option value="percent" ${p.type === "percent" ? "selected" : ""}>%</option></select>
+        <input type="number" min="0" step="any" data-f="value" value="${esc(String(p.value ?? ""))}">
+      </div></td>
+      <td class="num"><strong>${fmt(r.payout)}</strong></td>
+      <td class="status ${r.cls}">${r.status}</td>
+      <td><button class="icon" data-act="del" title="Remove">✕</button></td>`;
+    list.appendChild(tr);
+  });
+  const included = rows.filter((r) => r.payout > 0).length;
+  $("sAvail").textContent = fmt(total);
+  $("sPaid").textContent = fmt(total - remaining);
+  $("sLeft").textContent = fmt(remaining);
+  $("sCount").textContent = included;
+  const pct = state.payees.filter((p) => p.enabled && p.type === "percent").reduce((a, p) => a + (Number(p.value) || 0), 0);
+  const msgs = [];
+  if (lookupError) msgs.push(`<span class="s-bad">${esc(lookupError)}</span>`);
+  if (state.pctMode === "total" && pct > 100) msgs.push(`<span class="s-warn">Percentages add up to ${pct}% of the total.</span>`);
+  const unresolved = rows.filter((r) => r.unresolved).length;
+  if (unresolved) msgs.push(`<span class="s-bad">${unresolved} user(s) aren't resolved and will be left out of the CSV.</span>`);
+  $("msg").innerHTML = msgs.join("<br>");
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+// Update only computed cells while typing so the focused input isn't replaced.
+function refreshComputed() {
+  const { rows } = calculate();
+  const trs = $("list").querySelectorAll("tr.item");
+  trs.forEach((tr, i) => {
+    tr.children[5].innerHTML = `<strong>${fmt(rows[i].payout)}</strong>`;
+    tr.children[6].className = `status ${rows[i].cls}`;
+    tr.children[6].textContent = rows[i].status;
+  });
+  const { total, remaining } = calculate();
+  $("sPaid").textContent = fmt(total - remaining);
+  $("sLeft").textContent = fmt(remaining);
+  $("sCount").textContent = rows.filter((r) => r.payout > 0).length;
+}
+
+// ---------- user lookup ----------
+async function resolveUsers(payees) {
+  if (!payees.length) return;
+  payees.forEach((p) => (p.lookup = "pending"));
+  render();
+  const ids = [], names = [];
+  payees.forEach((p) => {
+    if (/^\d+$/.test(p.input)) ids.push(Number(p.input));
+    else names.push(p.input.replace(/^@/, ""));
+  });
+  let data = null;
+  try {
+    const res = await fetch("/api/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, names }) });
+    data = await res.json();
+    if (data.error) throw new Error(data.error);
+    lookupError = "";
+  } catch (e) {
+    lookupError = e.message || "Lookup failed";
+    payees.forEach((p) => {
+      p.lookup = "error";
+      // Numeric IDs are still usable without the lookup.
+      if (/^\d+$/.test(p.input)) p.userId = Number(p.input);
+    });
+    render(); save();
+    return;
+  }
+  payees.forEach((p) => {
+    const u = /^\d+$/.test(p.input) ? data.byId[p.input] : data.byName[p.input.replace(/^@/, "").toLowerCase()];
+    p.lookup = u ? "ok" : "failed";
+    if (u) { p.userId = u.id; p.username = u.name; p.displayName = u.displayName; }
+  });
+  render(); save();
+}
+
+// ---------- events ----------
+$("available").addEventListener("input", (e) => { state.available = e.target.value; refreshComputed(); save(); });
+$("pctMode").addEventListener("change", (e) => { state.pctMode = e.target.value; render(); save(); });
+
+$("addForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const tokens = $("addInput").value.split(/[\s,;]+/).map((t) => t.trim()).filter(Boolean);
+  if (!tokens.length) return;
+  const added = tokens.map((t) => ({
+    id: uid(), input: t, userId: null, username: null, displayName: null,
+    type: $("addType").value, value: $("addValue").value || 0, enabled: true,
+  }));
+  state.payees.push(...added);
+  $("addInput").value = "";
+  $("addInput").focus();
+  resolveUsers(added);
+  save();
+});
+
+$("list").addEventListener("input", (e) => {
+  const tr = e.target.closest("tr.item"); if (!tr) return;
+  const p = state.payees.find((x) => x.id === tr.dataset.id);
+  const f = e.target.dataset.f;
+  if (f === "value") { p.value = e.target.value; refreshComputed(); }
+  else if (f === "type") { p.type = e.target.value; render(); }
+  else if (f === "enabled") { p.enabled = e.target.checked; render(); }
+  save();
+});
+$("list").addEventListener("click", (e) => {
+  if (e.target.dataset.act !== "del") return;
+  const id = e.target.closest("tr.item").dataset.id;
+  state.payees = state.payees.filter((p) => p.id !== id);
+  render(); save();
+});
+$("clearBtn").addEventListener("click", () => {
+  if (!state.payees.length || !confirm("Remove all payees?")) return;
+  state.payees = []; render(); save();
+});
+// Keeps existing user IDs if the lookup fails (IDs never change, names can).
+$("refreshBtn").addEventListener("click", () => resolveUsers(state.payees.slice()));
+
+// Drag-to-reorder (drag the ⠿ handle)
+let dragId = null;
+$("list").addEventListener("dragstart", (e) => {
+  const tr = e.target.closest("tr.item"); if (!tr) return;
+  dragId = tr.dataset.id;
+  tr.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", dragId);
+  e.dataTransfer.setDragImage(tr, 20, 20);
+});
+$("list").addEventListener("dragover", (e) => {
+  const tr = e.target.closest("tr.item"); if (!tr || !dragId) return;
+  e.preventDefault();
+  clearDropMarks();
+  const below = e.clientY > tr.getBoundingClientRect().top + tr.offsetHeight / 2;
+  tr.classList.add(below ? "drop-below" : "drop-above");
+});
+$("list").addEventListener("drop", (e) => {
+  const tr = e.target.closest("tr.item"); if (!tr || !dragId) return;
+  e.preventDefault();
+  const below = tr.classList.contains("drop-below");
+  const from = state.payees.findIndex((p) => p.id === dragId);
+  const [moved] = state.payees.splice(from, 1);
+  let to = state.payees.findIndex((p) => p.id === tr.dataset.id);
+  if (to === -1) to = from; else if (below) to++;
+  state.payees.splice(to, 0, moved);
+  dragId = null; render(); save();
+});
+$("list").addEventListener("dragend", () => { dragId = null; clearDropMarks(); document.querySelectorAll(".dragging").forEach((n) => n.classList.remove("dragging")); });
+function clearDropMarks() { document.querySelectorAll(".drop-above,.drop-below").forEach((n) => n.classList.remove("drop-above", "drop-below")); }
+
+// CSV export
+$("exportBtn").addEventListener("click", () => {
+  const { rows } = calculate();
+  const lines = ["userId,payoutInRobux"];
+  state.payees.forEach((p, i) => { if (rows[i].payout > 0) lines.push(`${p.userId},${rows[i].payout}`); });
+  if (lines.length === 1) { $("msg").innerHTML = `<span class="s-bad">Nothing to export — no payee has a payout above 0.</span>`; return; }
+  const blob = new Blob([lines.join("\r\n") + "\r\n"], { type: "text/csv" });
+  const a = document.createElement("a");
+  const d = new Date();
+  a.href = URL.createObjectURL(blob);
+  a.download = `payouts_${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+load();
+</script>
+</body>
+</html>
